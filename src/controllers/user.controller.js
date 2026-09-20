@@ -51,7 +51,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(409, "User already exists");
   }
 
-  // Get local file paths
+  // Get local file paths - which we get from Multer
   const avatarLocalPath = req.files?.avatar?.[0]?.path;
   const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
 
@@ -231,4 +231,121 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
   }
 });
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken };
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+
+  const userId = req.user?.id;
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw new ApiError(401, "Unauthorized user!");
+  }
+
+  const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
+
+  if (!isPasswordCorrect) {
+    throw new ApiError(400, "Old password is incorrect");
+  }
+
+  user.password = newPassword;
+  await user.save({ validateBeforeSave: false });
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, { user }, "Password changed successfully"));
+});
+
+const getCurrentUser = asyncHandler(async (req, res) => {
+  const userId = req.user?.id;
+  const user = await User.findById(userId).select("-password -refreshToken");
+
+  if (!user) {
+    throw new ApiError(400, "User not found");
+  }
+
+  res.status(200).json(new ApiResponse(200, user, "User fetched successfully"));
+});
+
+const updateAccountDetails = asyncHandler(async (req, res) => {
+  const { fullName, email } = req.body;
+
+  if (!fullName.trim() || !email.trim()) {
+    throw new Error("Fullname and Email are required.");
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user?.id,
+    { $set: { email: email, fullName: fullName } },
+    { new: true }
+  ).select("-password");
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, user, "User account updated succfully"));
+});
+
+const updateUserAvatar = asyncHandler(async (req, res) => {
+  const avatarLocalPath = req.file?.path;
+
+  if (!avatarLocalPath) {
+    throw new ApiError(400, "Avatar file is missing");
+  }
+
+  const avatar = await uploadOnCloudinary(avatarLocalPath);
+
+  if (!avatar?.url) {
+    throw new ApiError(400, "Error while uploading Avatar");
+  }
+
+  const user = await User.findById(req.user?.id).select(
+    "-password -refreshToken"
+  );
+
+  if (!user) {
+    throw new ApiError(401, "Unauthorized user");
+  }
+
+  user.avatar = avatar?.url;
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json(new ApiResponse(200, user, "Avatar updated succfully"));
+});
+
+const updateCoverImage = asyncHandler(async (req, res) => {
+  const coverImageLocalPath = req.file?.path;
+
+  if (!coverImageLocalPath) {
+    throw new ApiError(400, "Cover Image file not found");
+  }
+
+  const coverImageUpload = await uploadOnCloudinary(coverImageLocalPath);
+
+  if (!coverImageUpload?.url) {
+    throw new ApiError(400, "Cover Image upload failed while updating");
+  }
+
+  const user = await User.findById(req.user?.id);
+
+  if (!user) {
+    throw new ApiError(401, "Unauthorized user");
+  }
+
+  user.coverImage = coverImageUpload?.url;
+  await user.save({ validateBeforeSave: false });
+
+  res
+    .status(200)
+    .json(new ApiResponse(200, user, "Cover image updated succfully"));
+});
+
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  refreshAccessToken,
+  changeCurrentPassword,
+  getCurrentUser,
+  updateAccountDetails,
+  updateUserAvatar,
+  updateCoverImage,
+};
